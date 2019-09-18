@@ -29,6 +29,10 @@ android {
         }
     }
 
+    packagingOptions {
+        pickFirst "lib/armeabi-v7a/libnative-lib.so"
+    }
+
 
     externalNativeBuild {
         cmake {

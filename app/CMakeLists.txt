@@ -25,7 +25,7 @@ endif()
 ### 配置资源目录
 add_library( native-lib
              SHARED
-        src/main/jni/native-lib.cpp)
+        src/main/jni/native-lib.c)
 
 find_library( log-lib
               log )
@@ -82,9 +82,8 @@ set_target_properties( avcodec
 
 set(CMAKE_VERBOSE_MAKEFILE on)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11")
-include_directories(src/main/cpp)
 # 添加ffmpeg头文件路径
-include_directories(src/main/jniLibs/include)
+include_directories(src/main/jni/include)
 
 target_link_libraries(native-lib
                       avcodec
