@@ -21,6 +21,7 @@ elseif (${CMAKE_SYSTEM_NAME} MATCHES "Android")
 else()
   message("OS not detected.")
 endif()
+#aux_source_directory(. DIR_LIB_SRCS)
 
 ### 配置资源目录
 add_library( native-lib
@@ -84,6 +85,7 @@ set(CMAKE_VERBOSE_MAKEFILE on)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11")
 # 添加ffmpeg头文件路径
 include_directories(src/main/jni/include)
+include_directories(src/main/cpp)
 
 target_link_libraries(native-lib
                       avcodec
