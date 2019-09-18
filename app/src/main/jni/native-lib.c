@@ -28,16 +28,17 @@
 //#define LOGE(format, ...) av_log(NULL, AV_LOG_ERROR, format, ##__VA_ARGS__)
 //
 //#endif
-
-#ifdef  __ANDROID_API__
-#include <android/log.h>
 #include <libavutil/file.h>
 
-#define ALOG(level, TAG, ...) ((void)__android_log_vprint(level, TAG, ##__VA_ARGS__))
+#ifdef  __ANDROID__
+#include <android/log.h>
+#define ALOG(level, TAG, ...) ((void)__android_log_print(level, TAG, ##__VA_ARGS__))
 #define SYS_LOG_TAG "zzdplayer"
 
 static void syslog_print(void *ptr, int level, const char *fmt, va_list vl)
 {
+    LOGE("%s", "call back log");
+
     switch (level){
         case AV_LOG_DEBUG:
             ALOG(AV_LOG_DEBUG, SYS_LOG_TAG, fmt, vl);
@@ -59,6 +60,7 @@ static void syslog_print(void *ptr, int level, const char *fmt, va_list vl)
 
 static void syslog_init()
 {
+    LOGE("%s", "init log");
     av_log_set_callback(syslog_print);
 }
 
@@ -107,8 +109,8 @@ JNIEXPORT jstring JNICALL
 Java_com_zhangzd_video_MainActivity_avioreading(JNIEnv *env, jobject instance, jstring src_) {
     const char *src = (*env)->GetStringUTFChars(env, src_, 0);
     LOGE("%s", src);
-
-    avio_read(src);
+    av_log_set_callback(syslog_print);
+    avio_read2(src);
 //    (*env)->ReleaseStringUTFChars(env, src_, src);
 
     return (*env)->NewStringUTF(env, src);
@@ -132,7 +134,7 @@ static int read_packet(void *opaque, uint8_t *buf, int buf_size)
     struct buffer_data *bd = (struct buffer_data *)opaque;
     buf_size = FFMIN(buf_size, bd->size);
 
-    LOGE("%p %zu\n", bd->ptr, bd->size);
+//    LOGE("%p %zu\n", bd->ptr, bd->size);
 
     memcpy(buf, bd->ptr, buf_size);
     bd->ptr += buf_size;
@@ -141,61 +143,58 @@ static int read_packet(void *opaque, uint8_t *buf, int buf_size)
     return buf_size;
 }
 
-int avio_read(const char *src) {
+int avio_read2(char* src) {
     AVFormatContext *fmt_ctx = NULL;
     AVIOContext *avio_ctx = NULL;
     uint8_t *buffer = NULL, *avio_ctx_buffer = NULL;
     size_t buffer_size, avio_ctx_buffer_size = 4096;
 //    const char *sr = "/storage/emulated/0/DCIM/Camera/e7a9c442d1cda4462fc03459d71d8b7c.mp4";
 
-    const char *input_filename = src;
+    char input_filename[500] = {0};
     int ret = 0;
-    struct buffer_data bd = {0};
-    LOGE("%s", "start");
+    sprintf(input_filename, "%s", src);
+//    struct buffer_data bd = {0};
+    LOGE("%s    ---", input_filename);
 
     av_register_all();
-//    ret = av_file_map(input_filename, &buffer, &buffer_size, 0, NULL);
-//    if (ret < 0) {
-//        LOGE("%s", "couldn't open input file .");
-//        goto end;
-//    }
+    avformat_network_init();
 
-    bd.ptr = buffer;
-    bd.size = buffer_size;
 
-    if (!(fmt_ctx = avformat_alloc_context())) {
+//    bd.ptr = buffer;
+//    bd.size = buffer_size;
+
         LOGE("%s", "2 couldn't open input file .");
+    if (!(fmt_ctx = avformat_alloc_context())) {
         ret = AVERROR(ENOMEM);
         goto end;
     }
 
+        LOGE("%s", "3 couldn't open input file .");
     avio_ctx_buffer = av_malloc(avio_ctx_buffer_size);
     if (!avio_ctx_buffer) {
-        LOGE("%s", "3 couldn't open input file .");
         ret = AVERROR(ENOMEM);
 
         goto end;
     }
 
+    LOGE("%s", "4 couldn't open input file .");
     avio_ctx = avio_alloc_context(avio_ctx_buffer, avio_ctx_buffer_size, 0, NULL, &read_packet, NULL,
                                   NULL);
     if (!avio_ctx) {
-        LOGE("%s", "4 couldn't open input file .");
         ret = AVERROR(ENOMEM);
         goto end;
     }
 
     fmt_ctx->pb = avio_ctx;
 
-    ret = avformat_open_input(&fmt_ctx, NULL, NULL, NULL);
-    if (ret < 0) {
-        LOGE("%s", "5 Could not open input");
+    LOGE("%s", "5 Could not open input");
+    ret = avformat_open_input(&fmt_ctx, input_filename, NULL, NULL);
+        LOGE("error %code, %s", ret, av_err2str(ret));
+    if (ret != 0) {
         goto end;
     }
-
-    ret = avformat_find_stream_info(fmt_ctx, NULL);
-    if (ret < 0) {
-        LOGE("%s", "6 Could not find stream information \n");
+    LOGE("%s", "6 Could not find stream information \n");
+    if (avformat_find_stream_info(fmt_ctx, NULL) < 0) {
         goto end;
     }
 
