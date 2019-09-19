@@ -7,12 +7,12 @@ set(CMAKE_VERBOSE_MAKEFILE on)
 message("--I print it:----------->>>>>>>'${CMAKE_CXX_FLAGS}'")
 
 project( libFFmpeg )
-
+aux_source_directory(src/main/cpp/ DIR_LIB_SRCS)
 
 ### 配置资源目录
 add_library( native-lib
              SHARED
-        src/main/cpp/native-lib.cpp)
+        ${DIR_LIB_SRCS})
 
 find_library( log-lib
               log )
