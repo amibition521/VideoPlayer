@@ -22,8 +22,15 @@ extern "C" {
 #define ALOG(level, TAG, format, ...) ((void)__android_log_print(level, TAG,format, ##__VA_ARGS__))
 #define SYS_LOG_TAG "zzd---player"
 
+struct buffer_data {
+    uint8_t *ptr;
+    size_t size;
+};
+static int read_packet(void *opaque, uint8_t *buf, int buf_size);
+static void av_dump_format2(AVFormatContext *ic, int index,const char *url, int is_output);
+
 static void syslog_print(void *ptr, int level, const char *fmt, va_list vl) {
-    LOGE("%s", "call back log");
+//    LOGE("%s, %d", "call back log", level);
 
     switch (level) {
         case AV_LOG_DEBUG:
@@ -93,77 +100,83 @@ Java_com_zhangzd_video_MainActivity_avcodecinfo(JNIEnv *env, jobject obj) {
 JNIEXPORT jint JNICALL
 Java_com_zhangzd_video_MainActivity_avioreading(JNIEnv *env, jobject instance, jstring src_) {
     const char *src = env->GetStringUTFChars(src_, NULL);
-    LOGE("%s", src);
     av_log_set_callback(syslog_print);
+
     AVFormatContext *fmt_ctx = NULL;
     AVIOContext *avio_ctx = NULL;
     uint8_t *buffer = NULL, *avio_ctx_buffer = NULL;
     size_t buffer_size, avio_ctx_buffer_size = 4096;
-//    const char *sr = "/storage/emulated/0/DCIM/Camera/e7a9c442d1cda4462fc03459d71d8b7c.mp4";
 
     char input_filename[500] = {0};
     int ret = 0;
     sprintf(input_filename, "%s", src);
-//    struct buffer_data bd = {0};
-    LOGE("%s    ---", input_filename);
+//    LOGE("%s    ---", input_filename);
 
+    struct buffer_data bd = { 0 };
+
+
+    LOGE("usage: %s input_file\n"
+                    "API example program to show how to read from a custom buffer "
+                    "accessed through AVIOContext.\n",input_filename);
     av_register_all();
     avformat_network_init();
 
-//    bd.ptr = buffer;
-//    bd.size = buffer_size;
+    /* slurp file content into buffer */
+    ret = av_file_map(input_filename, &buffer, &buffer_size, 0, NULL);
+    if (ret < 0)
+        goto end;
 
-    LOGE("%s", "2 couldn't open input file .");
+    /* fill opaque structure used by the AVIOContext read callback */
+    bd.ptr  = buffer;
+    bd.size = buffer_size;
+
     if (!(fmt_ctx = avformat_alloc_context())) {
+        LOGE("%s", "2 couldn't open input file .");
         ret = AVERROR(ENOMEM);
         goto end;
     }
 
-    LOGE("%s", "3 couldn't open input file .");
-    avio_ctx_buffer = static_cast<uint8_t *>(av_malloc(avio_ctx_buffer_size));
+    avio_ctx_buffer = (uint8_t *)av_malloc(avio_ctx_buffer_size);
     if (!avio_ctx_buffer) {
+        LOGE("%s", "3 couldn't open input file .");
         ret = AVERROR(ENOMEM);
-
         goto end;
     }
 
-    LOGE("%s", "4 couldn't open input file .");
-    avio_ctx = avio_alloc_context(avio_ctx_buffer, avio_ctx_buffer_size, 0, NULL, NULL,
-                                  NULL,
-                                  NULL);
+    avio_ctx = avio_alloc_context(avio_ctx_buffer, avio_ctx_buffer_size, 0, &bd, &read_packet, NULL,NULL);
     if (!avio_ctx) {
+        LOGE("%s", "4 couldn't open input file .");
         ret = AVERROR(ENOMEM);
         goto end;
     }
 
     fmt_ctx->pb = avio_ctx;
 
-    LOGE("%s", "5 Could not open input");
     ret = avformat_open_input(&fmt_ctx, input_filename, NULL, NULL);
-    LOGE("error %d,code: %s", ret, av_err2str(ret));
     if (ret != 0) {
+        LOGE("%s", "5 Could not open input");
+        LOGE("error %d,code: %s", ret, av_err2str(ret));
         goto end;
     }
-    LOGE("%s", "6 Could not find stream information \n");
     if (avformat_find_stream_info(fmt_ctx, NULL) < 0) {
+        LOGE("%s", "6 Could not find stream information \n");
         goto end;
     }
+    LOGE("%s", "end   1");
+    //TODO:导致崩溃
+    av_dump_format2(fmt_ctx, 0, input_filename, 0);
+    LOGE("%s", "end   2");
 
-    av_dump_format(fmt_ctx, 0, input_filename, 0);
-    LOGE("%s", "end");
-
-    end:
+end:
     avformat_close_input(&fmt_ctx);
     if (avio_ctx) {
         av_freep(&avio_ctx->buffer);
         av_freep(&avio_ctx);
     }
     av_file_unmap(buffer, buffer_size);
-    LOGE("%s", "error.");
 
     if (ret < 0) {
-        fprintf(stderr, "Error occured:%s\n", av_err2str(ret));
-        LOGE("%s", "error.");
+        LOGE("Error occured:%s\n", av_err2str(ret));
         return 1;
     }
 
@@ -178,17 +191,12 @@ Java_com_zhangzd_video_MainActivity_sysloginit(JNIEnv *env, jobject instance) {
 
     return NULL;
 }
-
-struct buffer_data {
-    uint8_t *ptr;
-    size_t size;
-};
-
-static int read_packet(void *opaque, uint8_t *buf, int buf_size) {
+}
+int read_packet(void *opaque, uint8_t *buf, int buf_size) {
     struct buffer_data *bd = (struct buffer_data *) opaque;
     buf_size = FFMIN(buf_size, bd->size);
 
-//    LOGE("%p %zu\n", bd->ptr, bd->size);
+//    LOGE("ptr:%p, size:%zu\n", bd->ptr, bd->size);
 
     memcpy(buf, bd->ptr, buf_size);
     bd->ptr += buf_size;
@@ -197,81 +205,86 @@ static int read_packet(void *opaque, uint8_t *buf, int buf_size) {
     return buf_size;
 }
 
-int avio_read2(char *src) {
-    AVFormatContext *fmt_ctx = NULL;
-    AVIOContext *avio_ctx = NULL;
-    uint8_t *buffer = NULL, *avio_ctx_buffer = NULL;
-    size_t buffer_size, avio_ctx_buffer_size = 4096;
-//    const char *sr = "/storage/emulated/0/DCIM/Camera/e7a9c442d1cda4462fc03459d71d8b7c.mp4";
 
-    char input_filename[500] = {0};
-    int ret = 0;
-    sprintf(input_filename, "%s", src);
-//    struct buffer_data bd = {0};
-    LOGE("%s    ---", input_filename);
+void av_dump_format2(AVFormatContext *ic, int index,
+                    const char *url, int is_output)
+{
+    int i;
+    uint8_t *printed = static_cast<uint8_t *>(ic->nb_streams ? av_mallocz(ic->nb_streams) : NULL);
+    if (ic->nb_streams && !printed)
+        return;
 
-    av_register_all();
-    avformat_network_init();
+    LOGE("%s #%d, %s, %s '%s':\n",
+           is_output ? "Output" : "Input",
+           index,
+           is_output ? ic->oformat->name : ic->iformat->name,
+           is_output ? "to" : "from", url);
+//    dump_metadata(NULL, ic->metadata, "  ");
 
-//    bd.ptr = buffer;
-//    bd.size = buffer_size;
-
-    LOGE("%s", "2 couldn't open input file .");
-    if (!(fmt_ctx = avformat_alloc_context())) {
-        ret = AVERROR(ENOMEM);
-        goto end;
+    if (!is_output) {
+        if (ic->duration != AV_NOPTS_VALUE) {
+            int hours, mins, secs, us;
+            int64_t duration = ic->duration + (ic->duration <= INT64_MAX - 5000 ? 5000 : 0);
+            secs  = duration / AV_TIME_BASE;
+            us    = duration % AV_TIME_BASE;
+            mins  = secs / 60;
+            secs %= 60;
+            hours = mins / 60;
+            mins %= 60;
+            LOGE("Duration: %02d:%02d:%02d.%02d", hours, mins, secs,
+                   (100 * us) / AV_TIME_BASE);
+        } else {
+            LOGE("%s", "N/A");
+        }
+        if (ic->start_time != AV_NOPTS_VALUE) {
+            long long secs, us;
+            av_log(NULL, AV_LOG_INFO, ", start: ");
+            secs = llabs(ic->start_time / AV_TIME_BASE);
+            us   = llabs(ic->start_time % AV_TIME_BASE);
+            LOGE("%s%d.%06d",
+                   ic->start_time >= 0 ? "" : "-",
+                   secs,
+                   (int) av_rescale(us, 1000000, AV_TIME_BASE));
+        }
+        if (ic->bit_rate)
+            LOGE("bitrate: %" PRId64 " kb/s", ic->bit_rate / 1000);
+        else
+            LOGE("bitrate: %s", "N/A");
     }
 
-    LOGE("%s", "3 couldn't open input file .");
-    avio_ctx_buffer = static_cast<uint8_t *>(av_malloc(avio_ctx_buffer_size));
-    if (!avio_ctx_buffer) {
-        ret = AVERROR(ENOMEM);
-
-        goto end;
+    for (i = 0; i < ic->nb_chapters; i++) {
+        AVChapter *ch = ic->chapters[i];
+        LOGE("Chapter #%d:%d: ", index, i);
+        LOGE("start %f, ", ch->start * av_q2d(ch->time_base));
+        LOGE("end %f\n", ch->end * av_q2d(ch->time_base));
+//        dump_metadata(NULL, ch->metadata, "    ");
     }
 
-    LOGE("%s", "4 couldn't open input file .");
-    avio_ctx = avio_alloc_context(avio_ctx_buffer, avio_ctx_buffer_size, 0, NULL, &read_packet,
-                                  NULL,
-                                  NULL);
-    if (!avio_ctx) {
-        ret = AVERROR(ENOMEM);
-        goto end;
+    if (ic->nb_programs) {
+        int j, k, total = 0;
+        for (j = 0; j < ic->nb_programs; j++) {
+            AVDictionaryEntry *name = av_dict_get(ic->programs[j]->metadata,
+                                                  "name", NULL, 0);
+            LOGE("  Program %d %s\n", ic->programs[j]->id,
+                   name ? name->value : "");
+//            dump_metadata(NULL, ic->programs[j]->metadata, "    ");
+//            for (k = 0; k < ic->programs[j]->nb_stream_indexes; k++) {
+//                dump_stream_format(ic, ic->programs[j]->stream_index[k],
+//                                   index, is_output);
+//                printed[ic->programs[j]->stream_index[k]] = 1;
+//            }
+            total += ic->programs[j]->nb_stream_indexes;
+        }
+        if (total < ic->nb_streams)
+            LOGE("%s","No Program\n");
     }
 
-    fmt_ctx->pb = avio_ctx;
+//    for (i = 0; i < ic->nb_streams; i++)
+//        if (!printed[i])
+//            dump_stream_format(ic, i, index, is_output);
 
-    LOGE("%s", "5 Could not open input");
-    ret = avformat_open_input(&fmt_ctx, input_filename, NULL, NULL);
-    LOGE("error %code, %s", ret, av_err2str(ret));
-    if (ret != 0) {
-        goto end;
-    }
-    LOGE("%s", "6 Could not find stream information \n");
-    if (avformat_find_stream_info(fmt_ctx, NULL) < 0) {
-        goto end;
-    }
-
-    av_dump_format(fmt_ctx, 0, input_filename, 0);
-    LOGE("%s", "end");
-
-    end:
-    avformat_close_input(&fmt_ctx);
-    if (avio_ctx) {
-        av_freep(&avio_ctx->buffer);
-        av_freep(&avio_ctx);
-    }
-    av_file_unmap(buffer, buffer_size);
-    LOGE("%s", "error.");
-
-    if (ret < 0) {
-        fprintf(stderr, "Error occured:%s\n", av_err2str(ret));
-        LOGE("%s", "error.");
-        return 1;
-    }
-
-    return 0;
-
+    av_free(printed);
 }
 
-}
+
+
