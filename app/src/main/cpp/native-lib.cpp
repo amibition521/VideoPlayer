@@ -13,6 +13,8 @@ extern "C" {
 #ifdef ANDROID
 #include <android/log.h>
 #define LOGE(format, ...)  __android_log_print(ANDROID_LOG_DEBUG, "zzd", format, ##__VA_ARGS__)
+#else
+#define LOGD(...)  __android_log_print(ANDROID_LOG_DEBUG, "zzd", ##__VA_ARGS__)
 #endif
 
 #include <libavutil/file.h>
@@ -162,10 +164,8 @@ Java_com_zhangzd_video_MainActivity_avioreading(JNIEnv *env, jobject instance, j
         LOGE("%s", "6 Could not find stream information \n");
         goto end;
     }
-    LOGE("%s", "end   1");
-    //TODO:导致崩溃
     av_dump_format2(fmt_ctx, 0, input_filename, 0);
-    LOGE("%s", "end   2");
+    LOGE("%s", "end");
 
 end:
     avformat_close_input(&fmt_ctx);
@@ -206,8 +206,136 @@ int read_packet(void *opaque, uint8_t *buf, int buf_size) {
 }
 
 
+static void dump_metadata(void *ctx, AVDictionary *m, const char *indent)
+{
+    if (m && !(av_dict_count(m) == 1 && av_dict_get(m, "language", NULL, 0))) {
+        AVDictionaryEntry *tag = NULL;
+
+        LOGE("%sMetadata:", indent);
+        while ((tag = av_dict_get(m, "", tag, AV_DICT_IGNORE_SUFFIX)))
+            if (strcmp("language", tag->key)) {
+                const char *p = tag->value;
+                LOGE("%s  %-16s: ", indent, tag->key);
+                while (*p) {
+                    char tmp[256];
+                    size_t len = strcspn(p, "\x8\xa\xb\xc\xd");
+//                    av_strlcpy(tmp, p, FFMIN(sizeof(tmp), len+1));
+                    LOGE("%s", tmp);
+                    p += len;
+                    if (*p == 0xd) LOGE(" ");
+                    if (*p == 0xa) LOGE("\n%s  %-16s: ", indent, "");
+                    if (*p) p++;
+                }
+            }
+    }
+}
+
+static void dump_stream_format(AVFormatContext *ic, int i,
+                               int index, int is_output)
+{
+    char buf[256];
+    int flags = (is_output ? ic->oformat->flags : ic->iformat->flags);
+    AVStream *st = ic->streams[i];
+    AVDictionaryEntry *lang = av_dict_get(st->metadata, "language", NULL, 0);
+    char *separator = reinterpret_cast<char *>(ic->dump_separator);
+    AVCodecContext *avctx;
+    int ret;
+
+    avctx = avcodec_alloc_context3(NULL);
+    if (!avctx)
+        return;
+
+    ret = avcodec_parameters_to_context(avctx, st->codecpar);
+    if (ret < 0) {
+        avcodec_free_context(&avctx);
+        return;
+    }
+
+    // Fields which are missing from AVCodecParameters need to be taken from the AVCodecContext
+    avctx->properties = st->codec->properties;
+    avctx->codec      = st->codec->codec;
+    avctx->qmin       = st->codec->qmin;
+    avctx->qmax       = st->codec->qmax;
+    avctx->coded_width  = st->codec->coded_width;
+    avctx->coded_height = st->codec->coded_height;
+
+//    if (separator)
+//        av_opt_set(avctx, "dump_separator", separator, 0);
+    avcodec_string(buf, sizeof(buf), avctx, is_output);
+    avcodec_free_context(&avctx);
+
+    LOGE("Stream #%d:%d", index, i);
+
+    /* the pid is an important information, so we display it */
+    /* XXX: add a generic system */
+    if (flags & AVFMT_SHOW_IDS)
+        LOGE("[0x%x]", st->id);
+    if (lang)
+        LOGE("(%s)", lang->value);
+    LOGE("%d, %d/%d", st->codec_info_nb_frames,
+           st->time_base.num, st->time_base.den);
+    LOGE(": %s", buf);
+
+    if (st->sample_aspect_ratio.num &&
+        av_cmp_q(st->sample_aspect_ratio, st->codecpar->sample_aspect_ratio)) {
+        AVRational display_aspect_ratio;
+        av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
+                  st->codecpar->width  * (int64_t)st->sample_aspect_ratio.num,
+                  st->codecpar->height * (int64_t)st->sample_aspect_ratio.den,
+                  1024 * 1024);
+        LOGE(", SAR %d:%d DAR %d:%d",
+               st->sample_aspect_ratio.num, st->sample_aspect_ratio.den,
+               display_aspect_ratio.num, display_aspect_ratio.den);
+    }
+
+    if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+        int fps = st->avg_frame_rate.den && st->avg_frame_rate.num;
+        int tbr = st->r_frame_rate.den && st->r_frame_rate.num;
+        int tbn = st->time_base.den && st->time_base.num;
+        int tbc = st->codec->time_base.den && st->codec->time_base.num;
+
+        if (fps || tbr || tbn || tbc)
+            LOGE("%s", separator);
+
+//        if (fps)
+//            print_fps(av_q2d(st->avg_frame_rate), tbr || tbn || tbc ? "fps, " : "fps");
+//        if (tbr)
+//            print_fps(av_q2d(st->r_frame_rate), tbn || tbc ? "tbr, " : "tbr");
+//        if (tbn)
+//            print_fps(1 / av_q2d(st->time_base), tbc ? "tbn, " : "tbn");
+//        if (tbc)
+//            print_fps(1 / av_q2d(st->codec->time_base), "tbc");
+    }
+
+    if (st->disposition & AV_DISPOSITION_DEFAULT)
+        LOGE("%s", " (default)");
+    if (st->disposition & AV_DISPOSITION_DUB)
+        LOGE("%s", " (dub)");
+    if (st->disposition & AV_DISPOSITION_ORIGINAL)
+        LOGE("%s", " (original)");
+    if (st->disposition & AV_DISPOSITION_COMMENT)
+        LOGE("%s", " (comment)");
+    if (st->disposition & AV_DISPOSITION_LYRICS)
+        LOGE("%s", " (lyrics)");
+    if (st->disposition & AV_DISPOSITION_KARAOKE)
+        LOGE("%s", " (karaoke)");
+    if (st->disposition & AV_DISPOSITION_FORCED)
+        LOGE("%s", " (forced)");
+    if (st->disposition & AV_DISPOSITION_HEARING_IMPAIRED)
+        LOGE("%s", " (hearing impaired)");
+    if (st->disposition & AV_DISPOSITION_VISUAL_IMPAIRED)
+        LOGE("%s", " (visual impaired)");
+    if (st->disposition & AV_DISPOSITION_CLEAN_EFFECTS)
+        LOGE("%s", " (clean effects)");
+    LOGE("%s",  "\n");
+
+    dump_metadata(NULL, st->metadata, "    ");
+
+//    dump_sidedata(NULL, st, "    ");
+}
+
 void av_dump_format2(AVFormatContext *ic, int index,
-                    const char *url, int is_output)
+                     const char *url, int is_output)
 {
     int i;
     uint8_t *printed = static_cast<uint8_t *>(ic->nb_streams ? av_mallocz(ic->nb_streams) : NULL);
@@ -219,7 +347,7 @@ void av_dump_format2(AVFormatContext *ic, int index,
            index,
            is_output ? ic->oformat->name : ic->iformat->name,
            is_output ? "to" : "from", url);
-//    dump_metadata(NULL, ic->metadata, "  ");
+    dump_metadata(NULL, ic->metadata, "  ");
 
     if (!is_output) {
         if (ic->duration != AV_NOPTS_VALUE) {
@@ -267,21 +395,21 @@ void av_dump_format2(AVFormatContext *ic, int index,
                                                   "name", NULL, 0);
             LOGE("  Program %d %s\n", ic->programs[j]->id,
                    name ? name->value : "");
-//            dump_metadata(NULL, ic->programs[j]->metadata, "    ");
-//            for (k = 0; k < ic->programs[j]->nb_stream_indexes; k++) {
-//                dump_stream_format(ic, ic->programs[j]->stream_index[k],
-//                                   index, is_output);
-//                printed[ic->programs[j]->stream_index[k]] = 1;
-//            }
+            dump_metadata(NULL, ic->programs[j]->metadata, "    ");
+            for (k = 0; k < ic->programs[j]->nb_stream_indexes; k++) {
+                dump_stream_format(ic, ic->programs[j]->stream_index[k],
+                                   index, is_output);
+                printed[ic->programs[j]->stream_index[k]] = 1;
+            }
             total += ic->programs[j]->nb_stream_indexes;
         }
         if (total < ic->nb_streams)
             LOGE("%s","No Program\n");
     }
 
-//    for (i = 0; i < ic->nb_streams; i++)
-//        if (!printed[i])
-//            dump_stream_format(ic, i, index, is_output);
+    for (i = 0; i < ic->nb_streams; i++)
+        if (!printed[i])
+            dump_stream_format(ic, i, index, is_output);
 
     av_free(printed);
 }
