@@ -8,35 +8,20 @@ message("--I print it:----------->>>>>>>'${CMAKE_CXX_FLAGS}'")
 
 project( libFFmpeg )
 
-message("Checking CMAKE_SYSTEM_NAME = '${CMAKE_SYSTEM_NAME}'")
-if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-  add_definitions(-DOS_OSX)
-elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-  add_definitions(-DOS_LINUX)
-elseif (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
-  add_definitions(-DOS_WIN)
-elseif (${CMAKE_SYSTEM_NAME} MATCHES "Android")
-  add_definitions(-DOS_ANDROID)
-  message("Checking CMAKE_ABI_NAME = '${CMAKE_ANDROID_ARCH_ABI}'")
-else()
-  message("OS not detected.")
-endif()
-#aux_source_directory(. DIR_LIB_SRCS)
 
 ### 配置资源目录
 add_library( native-lib
              SHARED
-        src/main/jni/native-lib.c)
+        src/main/cpp/native-lib.cpp)
 
 find_library( log-lib
               log )
-
 
 find_library( android-lib
               android )
 
 # 设置ffmpeg库所在路径的目录
-set(distribution_DIR ${CMAKE_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI})
+set(distribution_DIR ../../../../libs/armeabi-v7a)
 
 add_library( avutil
              SHARED
@@ -84,8 +69,7 @@ set_target_properties( avcodec
 set(CMAKE_VERBOSE_MAKEFILE on)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11")
 # 添加ffmpeg头文件路径
-include_directories(src/main/jni/include)
-include_directories(src/main/cpp)
+include_directories(libs/include)
 
 target_link_libraries(native-lib
                       avcodec

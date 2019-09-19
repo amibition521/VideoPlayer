@@ -10,7 +10,7 @@ android {
         versionName "1.0"
 
         sourceSets.main {
-            jniLibs.srcDirs = ['src/main/jniLibs']
+            jniLibs.srcDirs = ['libs']
         }
         externalNativeBuild {
             cmake {
@@ -27,10 +27,6 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
-    }
-
-    packagingOptions {
-        pickFirst "lib/armeabi-v7a/libnative-lib.so"
     }
 
 
