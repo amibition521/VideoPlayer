@@ -44,7 +44,12 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
                             @Override
                             public void onAction(List<String> data) {
 //                                avioreading(src);
-                                play(mSurfaceHolder.getSurface(), src);
+                                new Thread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        play(mSurfaceHolder.getSurface(), src);
+                                    }
+                                }).start();
 
                             }
                         })

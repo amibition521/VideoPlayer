@@ -20,13 +20,7 @@ static const char *src_filename = NULL;
 static const char *video_dst_filename = NULL;
 static const char *audio_dst_filename = NULL;
 
-static uint8_t *video_dst_data[4] = {NULL};
-static int video_dst_linesize[4];
-static int video_dst_bufsize;
 
-static int video_stream_idx = -1, audio_stream_idx = -1;
-static AVFrame *frame = NULL;
-static AVPacket pkt;
 static int video_frame_count = 0;
 static int audio_frame_count = 0;
 
@@ -154,7 +148,7 @@ static int open_codec_context2(int *stream_idx, AVCodecContext **dec_ctx,
     return 0;
 }
 
-static int play(JNIEnv *env, jobject surface, const char *src) {
+static int play2(JNIEnv *env, jobject surface, const char *src) {
     int ret = 0;
     src_filename = src;
     AVFormatContext *fmt_ctx = NULL;
@@ -164,6 +158,18 @@ static int play(JNIEnv *env, jobject surface, const char *src) {
     AVStream *video_stream = NULL, *audio_stream = NULL;
     LOGE("Could open source file %s.\n", src_filename);
 
+    AVCodec *dec = NULL;
+    AVDictionary *opts = NULL;
+    AVCodecParserContext *parser;
+
+    int video_stream_idx = -1, audio_stream_idx = -1;
+    AVPacket pkt;
+    struct SwsContext *sws_ctx = NULL;
+
+    uint8_t *video_dst_data[4] = {NULL};
+    int video_dst_linesize[4];
+    int video_dst_bufsize;
+
     av_register_all();
     avformat_network_init();
 
@@ -171,49 +177,79 @@ static int play(JNIEnv *env, jobject surface, const char *src) {
     char input_filename[500] = {0};
     sprintf(input_filename, "%s", src);
     LOGE("22  Could open source file %s.\n", input_filename);
+
+    //open file
     ret = avformat_open_input(&fmt_ctx, input_filename, NULL, NULL);
     if (ret < 0) {
         LOGE("Could not open source file %s.\n", av_err2str(ret));
         return 0;
     }
 
-    LOGD("33  Could open source file.\n");
-
     if (avformat_find_stream_info(fmt_ctx, NULL) < 0) {
         LOGE("Could not find stream information.\n");
         return 0;
     }
-    LOGD("444Could open source file.\n");
+    //decode
+    ret = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
+    LOGE("Could find %s stream in input file.\n",
+         av_get_media_type_string(AVMEDIA_TYPE_VIDEO));
 
-    if (open_codec_context2(&video_stream_idx, &video_dec_ctx, fmt_ctx, AVMEDIA_TYPE_VIDEO) >= 0) {
-        video_stream = fmt_ctx->streams[video_stream_idx];
-        width = video_dec_ctx->width;
-        height = video_dec_ctx->height;
-        pix_fmt = video_dec_ctx->pix_fmt;
-        ret = av_image_alloc(video_dst_data, video_dst_linesize, width, height, pix_fmt, 1);
+    if (ret < 0) {
+        LOGE("Could not find %s stream in input file.\n",
+             av_get_media_type_string(AVMEDIA_TYPE_VIDEO));
+        return ret;
     }
-    LOGD("555 Could open source file.\n");
+    video_stream_idx = ret;
+    LOGE("Could not find %d stream in input file.\n", video_stream_idx);
 
-    if (open_codec_context2(&audio_stream_idx, &audio_dex_ctx, fmt_ctx, AVMEDIA_TYPE_AUDIO) >= 0) {
-        audio_stream = fmt_ctx->streams[audio_stream_idx];
+    video_stream = fmt_ctx->streams[ret];
+
+    dec = avcodec_find_decoder(video_stream->codecpar->codec_id);
+    if (!dec) {
+        LOGE("Failed to find %s codec \n", av_get_media_type_string(AVMEDIA_TYPE_VIDEO));
+        return AVERROR(EINVAL);
     }
-    LOGD("666 Could open source file.\n");
-
-    if (!audio_stream && !video_stream) {
-        LOGE("%s", "Could not find audio or video stream in the input, aborting.\n");
-        ret = AVERROR(ENOMEM);
+    parser = av_parser_init(dec->id);
+    if (!parser) {
+        LOGE("%s", "parser not found.");
         return 0;
     }
 
+    video_dec_ctx = avcodec_alloc_context3(dec);
+    if (!video_dec_ctx) {
+        LOGE("Failed to allocate the %s codec context\n",
+             av_get_media_type_string(AVMEDIA_TYPE_VIDEO));
+        return AVERROR(EINVAL);
+    }
+
+    ret = avcodec_parameters_to_context(video_dec_ctx, video_stream->codecpar);
+    if (ret < 0) {
+        LOGE("Failed to copy %s codec parameters to decoder context\n",
+             av_get_media_type_string(AVMEDIA_TYPE_VIDEO));
+        return ret;
+    }
+
+    av_dict_set(&opts, "refcounted_frames", refcount ? "1" : "0", 0);
+    ret = avcodec_open2(video_dec_ctx, dec, &opts);
+    if (ret < 0) {
+        LOGE("Failed to open %s codec \n", av_get_media_type_string(AVMEDIA_TYPE_VIDEO));
+        return ret;
+    }
+    //
+    width = video_dec_ctx->width;
+    height = video_dec_ctx->height;
+    pix_fmt = video_dec_ctx->pix_fmt;
+    ret = av_image_alloc(video_dst_data, video_dst_linesize, width, height, pix_fmt, 1);
+    if (ret < 0) {
+        LOGD("555 Could open source file.%d, \n", ret);
+        return 0;
+    }
+    // init packet
     av_init_packet(&pkt);
     pkt.data = NULL;
     pkt.size = 0;
 
-//    do {
-//        decode_packet2(&got_frame, 1);
-//    } while (got_frame);
-
-    LOGE("%s", "Demuxing succeeded.\n");
+    LOGE("Demuxing succeeded. video:%d, audio: %d, \n", video_stream_idx, audio_stream_idx);
 
     ANativeWindow *nativeWindow = ANativeWindow_fromSurface(env, surface);
     LOGD("71 Could open source file.\n");
@@ -223,64 +259,87 @@ static int play(JNIEnv *env, jobject surface, const char *src) {
 
     ANativeWindow_setBuffersGeometry(nativeWindow, videoWidth, videoHeight,
                                      WINDOW_FORMAT_RGBA_8888);
-    LOGD("7 Could open source file.\n");
 
     ANativeWindow_Buffer window_buffer;
 
     AVFrame *pFrame = av_frame_alloc();
-
     AVFrame *pFrameRGBA = av_frame_alloc();
+
     if (pFrameRGBA == NULL || pFrame == NULL) {
         LOGE("%s", "Could not allocate video frame.");
         return -1;
     }
-    LOGD("77 Could open source file.\n");
+    LOGD("7 Could open source file.\n");
 
-    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, video_dec_ctx->width,
-                                            video_dec_ctx->height, 1);
+    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, videoWidth, videoHeight, 1);
+    LOGE("77 numBytes:%d.\n", numBytes);
 
     uint8_t *buffer = static_cast<uint8_t *>(av_malloc(numBytes * sizeof(uint8_t)));
     av_image_fill_arrays(pFrameRGBA->data, pFrameRGBA->linesize, buffer, AV_PIX_FMT_RGBA,
                          video_dec_ctx->width, video_dec_ctx->height, 1);
+    LOGD("7771 Could open source file.\n");
 
-    struct SwsContext *sws_ctx = sws_getContext(video_dec_ctx->width, video_dec_ctx->height,
-                                                video_dec_ctx->pix_fmt, video_dec_ctx->width,
-                                                video_dec_ctx->height, AV_PIX_FMT_RGBA,
-                                                SWS_BILINEAR, NULL, NULL, NULL);
-    LOGD("777 Could open source file.\n");
+    LOGE("Impossible to create scale context for the conversion "
+         "fmt:%s s:%dx%d -> fmt:%s s:%dx%d.\n",
+         av_get_pix_fmt_name(pix_fmt), videoWidth, videoHeight,
+         av_get_pix_fmt_name(AV_PIX_FMT_RGBA), videoWidth, videoHeight);
+    uint8_t *dst_data[4];
+    int dst_linesize[4];
+    av_image_alloc(dst_data, dst_linesize, video_dec_ctx->width, video_dec_ctx->height,AV_PIX_FMT_RGBA, 1);
+
+    //TODO:崩溃
+//    sws_ctx = sws_alloc_context();
+    sws_ctx = sws_getContext(videoWidth,videoHeight,pix_fmt,
+            videoWidth,
+            videoHeight,
+            AV_PIX_FMT_RGBA,SWS_FAST_BILINEAR,NULL,NULL,NULL);
+
+    if (!sws_ctx) {
+        ret = AVERROR(EINVAL);
+        LOGD("77  ----\n");
+        return 0;
+    }
+
+    LOGD("7772----\n");
 
     while (av_read_frame(fmt_ctx, &pkt) >= 0) {
-        ret = avcodec_send_packet(video_dec_ctx, &pkt);
-        if (ret < 0) {
-            LOGE("Error decoding video frame (%s)\n", av_err2str(ret));
-            return ret;
-        }
 
-        while (ret >= 0) {
-            ret = avcodec_receive_frame(video_dec_ctx, pFrame);
-            if (ret < 0) {
-                LOGE("%s", "Error during decoding\n");
-                return ret;
-            }
-//            avcodec_decode_video2(video_dec_ctx, pFrame, &frameFinished, &pkt);
-            ANativeWindow_lock(nativeWindow, &window_buffer, 0);
-
-            sws_scale(sws_ctx, (uint8_t const *const *) pFrame->data,
-                      pFrame->linesize, 0, video_dec_ctx->height, pFrameRGBA->data,
-                      pFrameRGBA->linesize);
-
-            uint8_t *dst = (uint8_t *) window_buffer.bits;
-            int dstStride = window_buffer.stride * 4;
-            uint8_t *stc = pFrameRGBA->data[0];
-            int srcStride = pFrameRGBA->linesize[0];
-
-            int h;
-            for (h = 0; h < videoHeight; h++) {
-                memcpy(dst + h * dstStride, src + h * srcStride, srcStride);
-            }
-            ANativeWindow_unlockAndPost(nativeWindow);
+        if (pkt.stream_index == video_stream_idx) {
+            ret = avcodec_send_packet(video_dec_ctx, &pkt);
             av_packet_unref(&pkt);
+
+            if (ret < 0) {
+                LOGE("Error decoding video frame (%s)\n", av_err2str(ret));
+                break;
+            }
+            while (ret >= 0) {
+                ret = avcodec_receive_frame(video_dec_ctx, pFrame);
+                if (ret < 0) {
+                    LOGE("Error during decoding %s \n", av_err2str(ret));
+                    break;
+                }
+                LOGE("saving frame %3d\n", video_dec_ctx->frame_number);
+
+
+                ANativeWindow_lock(nativeWindow, &window_buffer, 0);
+
+//                sws_scale(sws_ctx, (uint8_t const *const *) pFrame->data,
+//                          pFrame->linesize, 0, video_dec_ctx->height, pFrameRGBA->data,
+//                          pFrameRGBA->linesize);
+
+                uint8_t *dst = (uint8_t *) window_buffer.bits;
+                int dstStride = window_buffer.stride * 4;
+                uint8_t *src = pFrameRGBA->data[0];
+                int srcStride = pFrameRGBA->linesize[0];
+
+                int h;
+                for (h = 0; h < videoHeight; h++) {
+                    memcpy(dst + h * dstStride, src + h * srcStride, srcStride);
+                }
+                ANativeWindow_unlockAndPost(nativeWindow);
+            }
         }
+        av_packet_unref(&pkt);
     }
 
     av_free(buffer);
