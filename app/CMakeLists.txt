@@ -28,35 +28,35 @@ add_library( avutil
              IMPORTED )
 set_target_properties( avutil
                        PROPERTIES IMPORTED_LOCATION
-                       ${distribution_DIR}/libavutil.so)
+                       ${distribution_DIR}/libavutil-55.so)
 
 add_library( swresample
              SHARED
              IMPORTED )
 set_target_properties( swresample
                        PROPERTIES IMPORTED_LOCATION
-                       ${distribution_DIR}/libswresample.so)
+                       ${distribution_DIR}/libswresample-2.so)
 
 add_library( avfilter
              SHARED
              IMPORTED )
 set_target_properties( avfilter
                        PROPERTIES IMPORTED_LOCATION
-                       ${distribution_DIR}/libavfilter.so)
+                       ${distribution_DIR}/libavfilter-6.so)
 
 add_library( avformat
              SHARED
              IMPORTED )
 set_target_properties( avformat
                        PROPERTIES IMPORTED_LOCATION
-                       ${distribution_DIR}/libavformat.so)
+                       ${distribution_DIR}/libavformat-57.so)
 
 add_library( swscale
              SHARED
              IMPORTED )
 set_target_properties( swscale
                        PROPERTIES IMPORTED_LOCATION
-                       ${distribution_DIR}/libswscale.so)
+                       ${distribution_DIR}/libswscale-4.so)
 
 
 add_library( avcodec
@@ -64,7 +64,7 @@ add_library( avcodec
              IMPORTED )
 set_target_properties( avcodec
                        PROPERTIES IMPORTED_LOCATION
-                       ${distribution_DIR}/libavcodec.so)
+                       ${distribution_DIR}/libavcodec-57.so)
 
 set(CMAKE_VERBOSE_MAKEFILE on)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11")
