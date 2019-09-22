@@ -8,13 +8,13 @@
 #include <android/native_window_jni.h>
 
 extern "C" {
-#include "libavcodec/avcodec.h"
-#include "libavformat/avformat.h"
-#include "libavfilter/avfilter.h"
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libavfilter/avfilter.h>
 #include <libavutil/imgutils.h>
 #include <libswscale/swscale.h>
-
 #include <libavutil/file.h>
+
 
 #ifdef  __ANDROID__
 #include <android/log.h>
@@ -472,34 +472,23 @@ static int play(JNIEnv *env, jobject surface, const char *src) {
              av_get_media_type_string(AVMEDIA_TYPE_VIDEO));
         return ret;
     }
-    video_stream_idx = ret;
+    int i;
+    for (i = 0; i < fmt_ctx->nb_streams;i++){
+        if (fmt_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO && video_stream_idx < 0) {
+           video_stream_idx = i;
+           break;
+        }
+    }
     LOGE("Could not find %d stream in input file.\n", video_stream_idx);
 
-    video_stream = fmt_ctx->streams[ret];
+    video_stream = fmt_ctx->streams[video_stream_idx];
 
-    dec = avcodec_find_decoder(video_stream->codecpar->codec_id);
-    if (!dec) {
-        LOGE("Failed to find %s codec \n", av_get_media_type_string(AVMEDIA_TYPE_VIDEO));
-        return AVERROR(EINVAL);
-    }
-    parser = av_parser_init(dec->id);
-    if (!parser) {
-        LOGE("%s", "parser not found.");
-        return 0;
-    }
+    video_dec_ctx = fmt_ctx->streams[video_stream_idx]->codec;
 
-    video_dec_ctx = avcodec_alloc_context3(dec);
-    if (!video_dec_ctx) {
-        LOGE("Failed to allocate the %s codec context\n",
-             av_get_media_type_string(AVMEDIA_TYPE_VIDEO));
-        return AVERROR(EINVAL);
-    }
-
-    ret = avcodec_parameters_to_context(video_dec_ctx, video_stream->codecpar);
-    if (ret < 0) {
-        LOGE("Failed to copy %s codec parameters to decoder context\n",
-             av_get_media_type_string(AVMEDIA_TYPE_VIDEO));
-        return ret;
+    dec = avcodec_find_decoder(video_dec_ctx -> codec_id);
+    if(dec==NULL) {
+        LOGD("Codec not found.");
+        return -1; // Codec not found
     }
 
 //    av_dict_set(&opts, "refcounted_frames", refcount ? "1" : "0", 0);
@@ -509,18 +498,18 @@ static int play(JNIEnv *env, jobject surface, const char *src) {
         return ret;
     }
     //
-    width = video_dec_ctx->width;
-    height = video_dec_ctx->height;
-    pix_fmt = video_dec_ctx->pix_fmt;
-    ret = av_image_alloc(video_dst_data, video_dst_linesize, width, height, pix_fmt, 1);
-    if (ret < 0) {
-        LOGD("555 Could open source file.%d, \n", ret);
-        return 0;
-    }
-    // init packet
-    av_init_packet(&pkt);
-    pkt.data = NULL;
-    pkt.size = 0;
+//    width = video_dec_ctx->width;
+//    height = video_dec_ctx->height;
+//    pix_fmt = video_dec_ctx->pix_fmt;
+//    ret = av_image_alloc(video_dst_data, video_dst_linesize, width, height, pix_fmt, 1);
+//    if (ret < 0) {
+//        LOGD("555 Could open source file.%d, \n", ret);
+//        return 0;
+//    }
+//    // init packet
+//    av_init_packet(&pkt);
+//    pkt.data = NULL;
+//    pkt.size = 0;
 
     LOGE("Demuxing succeeded. video:%d, audio: %d, \n", video_stream_idx, audio_stream_idx);
 
@@ -555,22 +544,20 @@ static int play(JNIEnv *env, jobject surface, const char *src) {
          "fmt:%s s:%dx%d -> fmt:%s s:%dx%d.\n",
          av_get_pix_fmt_name(pix_fmt), videoWidth, videoHeight,
          av_get_pix_fmt_name(AV_PIX_FMT_RGBA), videoWidth, videoHeight);
-    uint8_t *dst_data[4];
-    int dst_linesize[4];
-    av_image_alloc(dst_data, dst_linesize, video_dec_ctx->width, video_dec_ctx->height,AV_PIX_FMT_RGBA, 1);
+//    uint8_t *dst_data[4];
+//    int dst_linesize[4];
+//    av_image_alloc(dst_data, dst_linesize, video_dec_ctx->width, video_dec_ctx->height,AV_PIX_FMT_RGBA, 1);
     LOGD("7771 Could open source file.\n");
 
     sws_ctx = sws_getContext(video_dec_ctx->width,video_dec_ctx->height,video_dec_ctx->pix_fmt,
             video_dec_ctx->width,video_dec_ctx->height, AV_PIX_FMT_RGBA, SWS_BILINEAR, NULL,NULL,NULL);
-//sws_ctx = sws_alloc_context();
-//    if (!sws_ctx) {
-//        ret = AVERROR(EINVAL);
-//        LOGD("77  ----\n");
-//        return 0;
-//    }
-//
-//    LOGD("7772----\n");
-
+    if (!sws_ctx) {
+        ret = AVERROR(EINVAL);
+        LOGD("77  ----\n");
+        return 0;
+    }
+    LOGD("7772----\n");
+/*
     while (av_read_frame(fmt_ctx, &pkt) >= 0) {
 
         if (pkt.stream_index == video_stream_idx) {
@@ -610,7 +597,45 @@ static int play(JNIEnv *env, jobject surface, const char *src) {
         }
         av_packet_unref(&pkt);
     }
+*/
+    int frameFinished;
+    AVPacket packet;
+    while(av_read_frame(fmt_ctx, &pkt) >=0) {
+        // Is this a packet from the video stream?
+        if(pkt.stream_index==video_stream_idx) {
 
+            // Decode video frame
+            avcodec_decode_video2(video_dec_ctx, pFrame, &frameFinished, &pkt);
+
+            // 并不是decode一次就可解码出一帧
+            if (frameFinished) {
+
+                // lock native window buffer
+                ANativeWindow_lock(nativeWindow, &window_buffer, 0);
+
+                // 格式转换
+                sws_scale(sws_ctx, (uint8_t const * const *)pFrame->data,
+                          pFrame->linesize, 0, video_dec_ctx->height,
+                          pFrameRGBA->data, pFrameRGBA->linesize);
+
+                // 获取stride
+                uint8_t * dst = (uint8_t*) (window_buffer.bits);
+                int dstStride = window_buffer.stride * 4;
+                uint8_t *src = (uint8_t*) (pFrameRGBA->data[0]);
+                int srcStride = pFrameRGBA->linesize[0];
+
+                // 由于window的stride和帧的stride不同,因此需要逐行复制
+                int h;
+                for (h = 0; h < videoHeight; h++) {
+                    memcpy(dst + h * dstStride, src + h * srcStride, srcStride);
+                }
+
+                ANativeWindow_unlockAndPost(nativeWindow);
+            }
+
+        }
+        av_packet_unref(&pkt);
+    }
     av_free(buffer);
     av_free(pFrameRGBA);
 
