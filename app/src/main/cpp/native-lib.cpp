@@ -6,6 +6,8 @@
 #include <jni.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
+#include "OpenSL_ES_Core.h"
+#include "log.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -196,6 +198,21 @@ Java_com_zhangzd_video_MainActivity_play(JNIEnv *env,jobject instance, jobject s
 
     play(env, surface, src);
     return 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_zhangzd_video_MainActivity_playAudio(JNIEnv *env, jobject instance, jstring src)
+{
+    LOGD("play audio");
+    char *src_ = const_cast<char *>((*env).GetStringUTFChars(src, NULL));
+    play(src_);
+}
+
+JNIEXPORT jint  JNICALL
+Java_com_zhangzd_video_MainActivity_stopAudio(JNIEnv *env, jobject instance)
+{
+    LOGD("stop audio");
+    stop();
 }
 
 
@@ -473,17 +490,17 @@ static int play(JNIEnv *env, jobject surface, const char *src) {
         return ret;
     }
     int i;
-    for (i = 0; i < fmt_ctx->nb_streams;i++){
-        if (fmt_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO && video_stream_idx < 0) {
-           video_stream_idx = i;
-           break;
-        }
-    }
+//    for (i = 0; i < fmt_ctx->nb_streams;i++){
+//        if (fmt_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO && video_stream_idx < 0) {
+//           video_stream_idx = i;
+//           break;
+//        }
+//    }
     LOGE("Could not find %d stream in input file.\n", video_stream_idx);
 
     video_stream = fmt_ctx->streams[video_stream_idx];
 
-    video_dec_ctx = fmt_ctx->streams[video_stream_idx]->codec;
+//    video_dec_ctx = fmt_ctx->streams[video_stream_idx]->codec;
 
     dec = avcodec_find_decoder(video_dec_ctx -> codec_id);
     if(dec==NULL) {
@@ -605,7 +622,7 @@ static int play(JNIEnv *env, jobject surface, const char *src) {
         if(pkt.stream_index==video_stream_idx) {
 
             // Decode video frame
-            avcodec_decode_video2(video_dec_ctx, pFrame, &frameFinished, &pkt);
+//            avcodec_decode_video2(video_dec_ctx, pFrame, &frameFinished, &pkt);
 
             // 并不是decode一次就可解码出一帧
             if (frameFinished) {

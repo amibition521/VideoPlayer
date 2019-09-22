@@ -20,7 +20,8 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         System.loadLibrary("native-lib");
     }
     SurfaceHolder mSurfaceHolder;
-    final String src = "/storage/emulated/0/DCIM/Camera/e7a9c442d1cda4462fc03459d71d8b7c.mp4";
+//    final String src = "/storage/emulated/0/DCIM/Camera/e7a9c442d1cda4462fc03459d71d8b7c.mp4";
+    final String src = "/storage/emulated/0/tencent/QQfile_recv/disco.mp3";
 //        final String src = "https://ips.ifeng.com/video19.ifeng.com/video09/2018/12/07/p5749945-102-009-184237.mp4";
 
     @Override
@@ -47,7 +48,8 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
                                 new Thread(new Runnable() {
                                     @Override
                                     public void run() {
-                                        play(mSurfaceHolder.getSurface(), src);
+//                                        play(mSurfaceHolder.getSurface(), src);
+                                        playAudio(src);
                                     }
                                 }).start();
 
@@ -67,6 +69,9 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     public native int avioreading(String src);
     public native int sysloginit();
     public native int play(Object surface, String src);
+
+    public native int playAudio(String url);
+    public native int stopAudio();
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
