@@ -40,19 +40,12 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
                 AndPermission.with(MainActivity.this)
                         .runtime()
                         .permission(Permission.WRITE_EXTERNAL_STORAGE,
-                                Permission.READ_EXTERNAL_STORAGE)
+                                Permission.READ_EXTERNAL_STORAGE,Permission.RECORD_AUDIO)
                         .onGranted(new Action<List<String>>() {
                             @Override
                             public void onAction(List<String> data) {
 //                                avioreading(src);
-                                new Thread(new Runnable() {
-                                    @Override
-                                    public void run() {
-//                                        play(mSurfaceHolder.getSurface(), src);
-                                        playAudio(src);
-                                    }
-                                }).start();
-
+                                playAudio(src);
                             }
                         })
                         .onDenied(new Action<List<String>>() {

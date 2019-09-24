@@ -7,7 +7,7 @@
 
 #include "stdio.h"
 int initFFmpeg(int *rate, int *channel, char *url);
-int getPCM(void **pcm, size_t *pcmSize);
+void getPCM(void **pcm, size_t *pcmSize);
 int releaseFFmpeg();
 
 

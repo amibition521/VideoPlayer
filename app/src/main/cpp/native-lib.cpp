@@ -206,6 +206,7 @@ Java_com_zhangzd_video_MainActivity_playAudio(JNIEnv *env, jobject instance, jst
     LOGD("play audio");
     char *src_ = const_cast<char *>((*env).GetStringUTFChars(src, NULL));
     play(src_);
+    return 0;
 }
 
 JNIEXPORT jint  JNICALL
@@ -213,6 +214,7 @@ Java_com_zhangzd_video_MainActivity_stopAudio(JNIEnv *env, jobject instance)
 {
     LOGD("stop audio");
     stop();
+    return 0;
 }
 
 
